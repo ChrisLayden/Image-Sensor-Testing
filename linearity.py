@@ -94,7 +94,7 @@ class LinearityMeasurement(object):
 # plt.show()
 # print(y/x)
 
-imx571_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/'
+imx571_dir = '/Volumes/DATA 1/ASI2600Images/IMX571_Data/Linearity Tests/'
 imx571 = LinearityMeasurement(imx571_dir)
 x = imx571.mu_list - imx571.mu_list_dark
 y = imx571.var_list - imx571.var_list_dark

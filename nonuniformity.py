@@ -201,30 +201,32 @@ if __name__ == '__main__':
 
     # light_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/Linearity Tests/120 s/Light'
     # dark_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/Linearity Tests/120 s/Dark'
-    light_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/QE Tests/No Window/750 nm/Light'
-    dark_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/QE Tests/No Window/750 nm/Dark'
-    light_seq = ImageSequence(light_dir)
-    dark_seq = ImageSequence(dark_dir)
-    light_seq.plot_image_avgs()
+    # light_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/QE Tests/No Window/750 nm/Light'
+    # dark_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/QE Tests/No Window/750 nm/Dark'
+    # light_seq = ImageSequence(light_dir)
+    # dark_seq = ImageSequence(dark_dir)
+    # light_seq.plot_image_avgs()
 
 
-    # times_list = ["5 s", "30 s", "60 s", "120 s"]
-    # times_array = np.array([5, 30, 60, 120])
-    # gain_list = np.zeros(len(times_list))
-    # light_avg_list = np.zeros(len(times_list))
-    # dark_avg_list = np.zeros(len(times_list))
-    # light_temp_var_list = np.zeros(len(times_list))
-    # dark_temp_var_list = np.zeros(len(times_list))
-    # for i, time in enumerate(times_list):
-    #     light_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/Linearity Tests/' + time + '/Light'
-    #     dark_dir = '/Volumes/KINGSTON/ASI2600Images/IMX571_Data/Linearity Tests/' + time + '/Dark'
-    #     light_seq = ImageSequence(light_dir)
-    #     dark_seq = ImageSequence(dark_dir)
-    #     gain_list[i] = (light_seq.temporal_var - dark_seq.temporal_var) / (light_seq.avg - dark_seq.avg)
-    #     light_avg_list[i] = light_seq.avg
-    #     dark_avg_list[i] = dark_seq.avg
-    #     light_temp_var_list[i] = light_seq.temporal_var
-    #     dark_temp_var_list[i] = dark_seq.temporal_var
+    times_list = ["5 s", "30 s", "60 s", "120 s"]
+    times_array = np.array([5, 30, 60, 120])
+    gain_list = np.zeros(len(times_list))
+    light_avg_list = np.zeros(len(times_list))
+    dark_avg_list = np.zeros(len(times_list))
+    light_temp_var_list = np.zeros(len(times_list))
+    dark_temp_var_list = np.zeros(len(times_list))
+    for i, time in enumerate(times_list):
+        light_dir = '/Volumes/DATA 1/ASI2600Images/IMX571_Data/Linearity Tests/' + time + '/Light'
+        dark_dir = '/Volumes/DATA 1/ASI2600Images/IMX571_Data/Linearity Tests/' + time + '/Dark'
+        light_seq = ImageSequence(light_dir)
+        dark_seq = ImageSequence(dark_dir)
+        gain = (light_seq.temporal_var - dark_seq.temporal_var) / (light_seq.avg - dark_seq.avg)
+        print(gain)
+        gain_list[i] = gain
+        light_avg_list[i] = light_seq.avg
+        dark_avg_list[i] = dark_seq.avg
+        light_temp_var_list[i] = light_seq.temporal_var
+        dark_temp_var_list[i] = dark_seq.temporal_var
 
     # snr_list = light_avg_list / np.sqrt(light_temp_var_list)
     # snr_max = np.sqrt(light_avg_list)
