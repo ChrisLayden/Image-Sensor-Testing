@@ -450,7 +450,7 @@ if __name__ == '__main__':
     gray_dir = home_dir + '/HS_HG_RS_F5A_GrayImages'
     dark_dir = home_dir + '/HS_HG_RS_F5A_DarkImages'
     dsnu_dir = home_dir + '/HS_HG_RS_DSNUImages'
-    nonuniformity = NonuniformityCalc(gray_dir, dark_dir, dsnu_dir, num_imgs=5, do_filtering=False)
+    nonuniformity = NonuniformityCalc(gray_dir, dark_dir, dsnu_dir, num_imgs=5, do_filtering=True)
     print("PRNU: ", nonuniformity.prnu)
     print("DSNU: ", nonuniformity.dsnu)
     print("Read Noise: ", nonuniformity.get_read_noise(gain=0.971))
@@ -462,9 +462,13 @@ if __name__ == '__main__':
     dark_defect_map = nonuniformity.defect_pix_map('dsnu')
     gray_defect_map = nonuniformity.defect_pix_map('gray')
     full_defect_map = dark_defect_map * gray_defect_map
-    plt.imshow(gray_defect_map, cmap='gray')
+    plt.imshow(full_defect_map, cmap='gray')
     plt.show()
     print('Number of DSNU Defect Pixels: ', np.sum(dark_defect_map == 0))
     print('Number of Gray Defect Pixels: ', np.sum(gray_defect_map == 0))
     print('Number of Defect Pixels: ', np.sum(full_defect_map == 0))
+    # # Save defect pixel array to fits file
+    # hdu = fits.PrimaryHDU(full_defect_map)
+    # hdul = fits.HDUList([hdu])
+    # hdul.writeto(home_dir + '/../defect_pix_filter.fits', overwrite=True)
 
