@@ -44,12 +44,12 @@ def plot_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=True, 
     if gain is not None:
         cutoff_dark_current = gain * high_cutoff / 120 # Exposure time is 120 seconds
         plt.text(0.0, -0.25, 'Cutoff Dark Current: ' + format(cutoff_dark_current, '3.2f') + ' e-/s', color='red', transform=plt.gca().transAxes)
-    plt.text(0., -0.3, 'Pixel Fraction outside ' + str(cutoff_level) + r'$\sigma_{meas}$: ' + format(defect_frac * 100, '4.3f') + '%', color='red', transform=plt.gca().transAxes)
+    plt.text(0., -0.3, 'Defect Pixel Fraction: ' + format(defect_frac * 100, '4.3f') + '%', color='red', transform=plt.gca().transAxes)
     plt.ylim(bottom=0.1)
     # plt.xlim(0, 2 ** bits)
     plt.yscale('log')
     plt.xscale('symlog')
-    plt.xlabel('Difference from 1s Frame (ADU)')
+    plt.xlabel('Dark Current (e-/pix/s)')
     plt.ylabel('Number of Pixels')
     plt.title('Defect Pixel Histogram')
     if filedata is not None:

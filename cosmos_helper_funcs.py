@@ -26,7 +26,8 @@ cosmos_fieldnames = ['date', 'time_stamp_acq', 'bit_per_pix', 'sensor_info', 'ac
             'cam_temp_Cel', 'shutter', 'exposure_ms']
 
 def get_stacks(user_dir, keywords=cosmos_keywords, fieldnames=cosmos_fieldnames,
-               get_mean_img=False, get_var_img=False, num_imgs=None):
+               get_mean_img=False, get_var_img=False, get_median_img=False,
+               num_imgs=None, datatype='float'):
     '''Read in a folder of FITS files. Extract data and relevant header keywords.
     
     Parameters
@@ -76,13 +77,29 @@ def get_stacks(user_dir, keywords=cosmos_keywords, fieldnames=cosmos_fieldnames,
         primary_header = hdul[0].header
         imagestack = hdul[0].data.astype(int)
         if get_mean_img:
-            mean_img = np.mean(imagestack, axis=0)
+            if datatype == 'float':
+                mean_img = np.mean(imagestack, axis=0)
+            elif datatype == 'int':
+                mean_img = np.rint(np.mean(imagestack, axis=0)).astype(np.int32)
+            mean_img_mean = np.mean(mean_img)
         else:
             mean_img = None
+            mean_img_mean = None
         if get_var_img:
-            var_img = np.var(imagestack, axis=0, ddof=1)
+            if datatype == 'float':
+                var_img = np.var(imagestack, axis=0, ddof=1)
+            elif datatype == 'int':
+                var_img = np.rint(np.var(imagestack, axis=0, ddof=1)).astype(np.int32)
+            var_img_mean = var_img.mean()
         else:
             var_img = None
+            var_img_mean = None
+        if get_median_img:
+            median_img = np.median(imagestack, axis=0)
+            median_img_median = np.median(mean_img)
+        else:
+            median_img = None
+            median_img_median = None
         if num_imgs is not None:
             if num_imgs == 0:
                 imagestack = None
@@ -91,7 +108,9 @@ def get_stacks(user_dir, keywords=cosmos_keywords, fieldnames=cosmos_fieldnames,
         
 
         file_data = {'baseFileName': base_file_name, 'fullFileName': full_file_name,
-                     'info': info, 'imagestack': imagestack, 'mean_img': mean_img, 'var_img': var_img}        
+                     'info': info, 'imagestack': imagestack, 'mean_img': mean_img, 'var_img': var_img,
+                     'mean_img_mean': mean_img_mean, 'var_img_mean': var_img_mean,
+                     'median_img': median_img, 'median_img_median': median_img_median}        
         for keyword, fieldname in zip(keywords, fieldnames):
             primary_keywords = list(primary_header.keys())
             primary_indices = find_keywords(primary_keywords, keyword)
