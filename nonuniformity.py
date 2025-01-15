@@ -4,27 +4,17 @@ import os
 import scipy.signal
 from astropy.io import fits
 import time
+import copy
 
 # Calculates DSNU and PRNU for a sequence of images; plots spectrograms and histograms
 
 class NonuniformityCalc(object):
 
-    def __init__(self, gray_dir, dark_dir, dsnu_dir, num_imgs=None, do_filtering=False):
+    def __init__(self, gray_imagestack, dark_imagestack, dsnu_imagestack, num_imgs=None, do_filtering=False):
         '''Initialize a NonuniformityCalc object
 
         Parameters
         ----------
-        gray_dir : directory path
-            Folder containing the sequence of gray images, each a .fits file. Each image
-            should be at 50% saturation, and there should be ~100-500 images.
-        dark_images : directory path
-            Folder containing the sequence of dark images, each a .fits file. Each image
-            should be taken with the shutter closed, but everything else the same as the
-            gray images.
-        dsnu_dir : directory path
-            Folder containing the sequence of dark images, each a .fits file. Each image
-            should be taken with a light shield in front of the camera and with minimal
-            exposure time.
         num_imgs : int (default=None)
             Number of images to use in the sequence. If None, use all images in the directory.
             Useful for testing with a smaller dataset.
@@ -33,131 +23,94 @@ class NonuniformityCalc(object):
             This is recommended for EMVA 4.0 Linear compliance testing.
         '''
         
-        self.gray_dir = gray_dir
-        self.dark_dir = dark_dir
-        self.dsnu_dir = dsnu_dir
+        self.gray_imagestack = gray_imagestack
+        self.dark_imagestack = dark_imagestack
+        self.dsnu_imagestack = dsnu_imagestack
         self.do_filtering = do_filtering
-        self.gray_files = [file for file in os.listdir(self.gray_dir) if file.endswith('.fits')]
-        self.dark_files = [file for file in os.listdir(self.dark_dir) if file.endswith('.fits')]
-        self.dsnu_files = [file for file in os.listdir(self.dsnu_dir) if file.endswith('.fits')]
-        # Exclude hidden files that might get generated
-        self.gray_files = [file for file in self.gray_files if not file.startswith('.')]
-        self.dark_files = [file for file in self.dark_files if not file.startswith('.')]
-        self.dsnu_files = [file for file in self.dsnu_files if not file.startswith('.')]
         if num_imgs is not None:
-            self.gray_files = self.gray_files[:num_imgs]
-            self.dark_files = self.dark_files[:num_imgs]
-            self.dsnu_files = self.dsnu_files[:num_imgs]
-        self.avg_gray_img = self.get_avg_img(img_type='gray')
-        self.avg_dark_img = self.get_avg_img(img_type='dark')
-        self.avg_dsnu_img = self.get_avg_img(img_type='dsnu')
-        self.M_gray = self.avg_gray_img.shape[0]
-        self.N_gray = self.avg_gray_img.shape[1]
-        self.M_dsnu = self.avg_dsnu_img.shape[0]
-        self.N_dsnu = self.avg_dsnu_img.shape[1]
+            self.gray_imagestack = self.gray_imagestack[:num_imgs]
+            self.dark_imagestack = self.dark_imagestack[:num_imgs]
+            self.dsnu_imagestack = self.dsnu_imagestack[:num_imgs]
+        self.gray_avg_img = np.nanmean(self.gray_imagestack, axis=0)
+        self.dark_avg_img = np.nanmean(self.dark_imagestack, axis=0)
+        self.dsnu_avg_img = np.nanmean(self.dsnu_imagestack, axis=0)
+        self.M_gray = self.gray_avg_img.shape[0]
+        self.N_gray = self.gray_avg_img.shape[1]
+        self.M_dsnu = self.dsnu_avg_img.shape[0]
+        self.N_dsnu = self.dsnu_avg_img.shape[1]
         # Calculate temporal variances (variance of each pixel over the sequence of images)
         # before high-pass filtering. This avoids having to high-pass filter each individual
         # image and gives pretty much the same result.
-        self.gray_temporal_var = np.mean(self.get_var_img(img_type='gray'))
-        self.dark_temporal_var = np.mean(self.get_var_img(img_type='dark'))
-        self.dsnu_temporal_var = np.mean(self.get_var_img(img_type='dsnu'))
+        self.gray_temp_var_img = np.nanvar(self.gray_imagestack, axis=0, ddof=1)
+        self.dark_temp_var_img = np.nanvar(self.dark_imagestack, axis=0, ddof=1)
+        self.dsnu_temp_var_img = np.nanvar(self.dsnu_imagestack, axis=0, ddof=1)
+        self.gray_temp_var = np.nanmean(self.gray_temp_var_img)
+        self.dark_temp_var = np.nanmean(self.dark_temp_var_img)
+        self.dsnu_temp_var = np.nanmean(self.dsnu_temp_var_img)
         if self.do_filtering:
-            self.avg_gray_img = self.high_pass_filter_2020(self.avg_gray_img)
-            self.avg_dark_img = self.high_pass_filter_2020(self.avg_dark_img)
+            self.gray_avg_img = self.high_pass_filter_2020(self.gray_avg_img)
+            self.dark_avg_img = self.high_pass_filter_2020(self.dark_avg_img)
             # Filtered images have slightly fewer pixels due to cutting off edges
-            self.M_gray = self.avg_gray_img.shape[0]
-            self.N_gray = self.avg_gray_img.shape[1]
-        self.gray_meas_var = np.var(self.avg_gray_img)
-        self.dark_meas_var = np.var(self.avg_dark_img)
-        self.dsnu_meas_var = np.var(self.avg_dsnu_img)
+            self.M_gray = self.gray_avg_img.shape[0]
+            self.N_gray = self.gray_avg_img.shape[1]
+        self.gray_meas_var = np.nanvar(self.gray_avg_img)
+        self.dark_meas_var = np.nanvar(self.dark_avg_img)
+        self.dsnu_meas_var = np.nanvar(self.dsnu_avg_img)
         self.defect_pix = self.defect_pix_map('gray') * self.defect_pix_map('dsnu')
-        self.gray_spatial_var = self.gray_meas_var - self.gray_temporal_var / len(self.gray_files)
-        self.dark_spatial_var = self.dark_meas_var - self.dark_temporal_var / len(self.dark_files)
-        self.dsnu_spatial_var = self.dsnu_meas_var - self.dsnu_temporal_var / len(self.dsnu_files)
-        self.prnu = 100 * np.sqrt(self.gray_spatial_var - self.dark_spatial_var) / np.mean(self.avg_gray_img - self.avg_dark_img)
+        self.gray_spatial_var = self.gray_meas_var - self.gray_temp_var / gray_imagestack.shape[0]
+        self.dark_spatial_var = self.dark_meas_var - self.dark_temp_var / dark_imagestack.shape[0]
+        self.dsnu_spatial_var = self.dsnu_meas_var - self.dsnu_temp_var / dsnu_imagestack.shape[0]
+        self.prnu = 100 * np.sqrt(self.gray_spatial_var - self.dark_spatial_var) / np.nanmean(self.gray_avg_img - self.dark_avg_img)
         self.dsnu = np.sqrt(self.dsnu_spatial_var)
         self.gray_pow_spec_horiz = self.power_spect_horiz('gray')
         self.gray_pow_spec_vert = self.power_spect_vert('gray')
         self.dsnu_pow_spec_horiz = self.power_spect_horiz('dsnu')
         self.dsnu_pow_spec_vert = self.power_spect_vert('dsnu')
 
-    def get_avg_img(self, img_type):
-        img_shape = fits.getdata(self.gray_dir + '/' + self.gray_files[0]).shape
-        avg_img = np.zeros(img_shape)
-        if img_type == 'gray':
-            dir = self.gray_dir
-            img_files = self.gray_files
-        elif img_type == 'dark':
-            dir = self.dark_dir
-            img_files = self.dark_files
-        elif img_type == 'dsnu':
-            dir = self.dsnu_dir
-            img_files = self.dsnu_files
-        for img_file in img_files:
-            avg_img += fits.getdata(dir + '/' + img_file)
-        avg_img /= len(img_files)
-        return avg_img
-
-    def get_var_img(self, img_type):
-        '''Returns the variance image of the sequence'''
-        if img_type == 'gray':
-            dir = self.gray_dir
-            img_files = self.gray_files
-            avg_img = self.avg_gray_img
-        elif img_type == 'dark':
-            dir = self.dark_dir
-            img_files = self.dark_files
-            avg_img = self.avg_dark_img
-        elif img_type == 'dsnu':
-            dir = self.dsnu_dir
-            img_files = self.dsnu_files
-            avg_img = self.avg_dsnu_img
-        var_img = np.zeros(np.shape(avg_img))
-        for img_file in img_files:
-            var_img += (fits.getdata(dir + '/' + img_file) - avg_img) ** 2
-        num_img = len(img_files)
-        var_img /= (num_img - 1)
-        return var_img
-
     def power_spect_horiz(self, img_type):
         '''Returns the power spectrum of the image sequence averaged over all rows'''
         if img_type == 'gray':
-            diff_img = (self.avg_gray_img - self.avg_dark_img) - (self.avg_gray_img - self.avg_dark_img).mean()
-            temporal_var = self.gray_temporal_var
+            diff_img = (self.gray_avg_img - self.dark_avg_img) - np.nanmean(self.gray_avg_img - self.dark_avg_img)
+            temporal_var = self.gray_temp_var
             num_rows = self.M_gray
-            num_img = len(self.gray_files)
+            num_img = self.gray_imagestack.shape[0]
         elif img_type == 'dsnu':
-            diff_img = self.avg_dsnu_img - self.avg_dsnu_img.mean()
-            temporal_var = self.dsnu_temporal_var
+            diff_img = self.dsnu_avg_img - self.dsnu_avg_img.mean()
+            temporal_var = self.dsnu_temp_var
             num_rows = self.M_dsnu
-            num_img = len(self.dsnu_files)
+            num_img = self.dsnu_imagestack.shape[0]
+        # Correct for NaN values before taking FFT
+        diff_img = np.nan_to_num(diff_img, nan=np.nanmean(diff_img))
         fourier_trans = np.fft.fft(diff_img, axis=1) / np.sqrt(num_rows)
-        pow_spec = np.mean(np.absolute(fourier_trans) ** 2, axis=0)
-        pow_spec -= temporal_var / num_img
+        pow_spec = np.nanmean(np.absolute(fourier_trans) ** 2, axis=0)
+        pow_spec = pow_spec - temporal_var / num_img
         return pow_spec
     
     def power_spect_vert(self, img_type):
         '''Returns the power spectrum of the image sequence averaged over all rows'''
         if img_type == 'gray':
-            diff_img = (self.avg_gray_img - self.avg_dark_img) - (self.avg_gray_img - self.avg_dark_img).mean()
-            temporal_var = self.gray_temporal_var
+            diff_img = (self.gray_avg_img - self.dark_avg_img) - np.nanmean(self.gray_avg_img - self.dark_avg_img)
+            temporal_var = self.gray_temp_var
             num_cols = self.N_gray
-            num_img = len(self.gray_files)
+            num_img = self.gray_imagestack.shape[0]
         elif img_type == 'dsnu':
-            diff_img = self.avg_dsnu_img - self.avg_dsnu_img.mean()
-            temporal_var = self.dsnu_temporal_var
+            diff_img = self.dsnu_avg_img - self.dsnu_avg_img.mean()
+            temporal_var = self.dsnu_temp_var
             num_cols = self.N_dsnu
-            num_img = len(self.dsnu_files)
+            num_img = self.dsnu_imagestack.shape[0]
+        # Where diff_img is NaN, make it zero
+        diff_img = np.nan_to_num(diff_img, nan=np.nanmean(diff_img))
         fourier_trans = np.fft.fft(diff_img, axis=0) / np.sqrt(num_cols)
         pow_spec = np.mean(np.absolute(fourier_trans) ** 2, axis=1)
-        pow_spec -= temporal_var / num_img
+        pow_spec = pow_spec - temporal_var / num_img
         return pow_spec
 
     def plot_gray_spectrograms(self, logx=False, logy=True):
         '''Plot both spectrograms on one figure with two separate axes'''
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        fig.tight_layout(pad=2)
-        avg = np.mean(self.avg_gray_img - self.avg_dark_img)
+        fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(8, 3))
+        # Adjust the figure size to make it narrower
+        fig.tight_layout(pad=0)
+        avg = np.nanmean(self.gray_avg_img - self.dark_avg_img)
         y_axis_horiz = np.sqrt(self.gray_pow_spec_horiz) / avg * 100
         prnu_horiz = np.sqrt(np.sum(self.gray_pow_spec_horiz[7:-7]) / self.N_gray - 15) / avg * 100
         y_axis_vert = np.sqrt(self.gray_pow_spec_vert) / avg * 100
@@ -166,35 +119,37 @@ class NonuniformityCalc(object):
         white_noise_vert = np.median(y_axis_vert)
         nonwhite_factor_horiz = (prnu_horiz / white_noise_horiz) ** 2
         nonwhite_factor_vert = (prnu_vert / white_noise_vert) ** 2
-        ax1.set_ylabel('Power (%)')
-        ax2.set_ylabel('Power (%)')
-        sigma_y = np.sqrt(self.gray_temporal_var - self.dark_temporal_var) / avg * 100
+        ax1.set_ylabel('Power (%)', fontsize=14)
+        sigma_y = np.sqrt(self.gray_temp_var - self.dark_temp_var) / avg * 100
         ax1.axhline(sigma_y, color='black', linestyle='dashed')
-        ax1.text(0.45, sigma_y + 0.5, r'$\sigma_y$: ' + format(sigma_y, '.2f') + '%')
+        ax1.text(0.4, sigma_y + 0.2, r'$\sigma_y$: ' + format(sigma_y, '.2f') + '%')
         ax2.axhline(sigma_y, color='black', linestyle='dashed')
-        ax2.text(0.45, sigma_y + 0.5, r'$\sigma_y$: ' + format(sigma_y, '.2f') + '%')
-        ax1.text(0.4, 0.6, 'PRNU: ' + format(prnu_horiz, '.2f') + '%',
+        ax2.text(0.4, sigma_y + 0.2, r'$\sigma_y$: ' + format(sigma_y, '.2f') + '%')
+        ax1.text(0.1, 0.6, 'PRNU: ' + format(prnu_horiz, '.2f') + '%',
                  color='red', transform=ax1.transAxes)
-        ax1.text(0.4, 0.5, r'$s_w$: ' + format(white_noise_horiz, '.2f') + '%',
+        ax1.text(0.1, 0.5, r'$s_w$: ' + format(white_noise_horiz, '.2f') + '%',
                  color='red', transform=ax1.transAxes)
-        ax1.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_horiz, '.2f'),
-                 color='red', transform=ax1.transAxes)
-        ax2.text(0.4, 0.6, 'PRNU: ' + format(prnu_vert, '.2f') + '%',
+        # ax1.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_horiz, '.2f'),
+        #          color='red', transform=ax1.transAxes)
+        ax2.text(0.1, 0.6, 'PRNU: ' + format(prnu_vert, '.2f') + '%',
                  color='red', transform=ax2.transAxes)
-        ax2.text(0.4, 0.5, r'$s_w$: '  + format(white_noise_vert, '.2f') + '%',
+        ax2.text(0.1, 0.5, r'$s_w$: '  + format(white_noise_vert, '.2f') + '%',
                  color='red', transform=ax2.transAxes)
-        ax2.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_vert, '.2f'),
-                 color='red', transform=ax2.transAxes)
+        # ax2.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_vert, '.2f'),
+        #          color='red', transform=ax2.transAxes)
         ax1.plot(np.arange(self.N_gray//2) / self.N_gray, y_axis_horiz[:self.N_gray//2])
-        ax1.set_xlabel('Cycles (Horizontal; periods/pix)')
+        ax1.set_xlabel('Cycles (Horizontal; periods/pix)', fontsize=14)
         ax2.plot(np.arange(self.M_gray//2) / self.M_gray, y_axis_vert[:self.M_gray//2])
-        ax2.set_xlabel('Cycles (Vertical; periods/pix)')
+        ax2.set_xlabel('Cycles (Vertical; periods/pix)', fontsize=14)
         if logx:
             ax1.set_xscale('log')
             ax2.set_xscale('log')
         if logy:
             ax1.set_yscale('log')
-            ax2.set_yscale('log')
+            # ax2.set_yscale('log')
+        # Set just an upper limit of 10 for the y-axis. Leave the lower limit automatic
+        ax1.set_ylim(0.05, 2)
+        # ax2.set_ylim(0.01, 10)
         plt.show()
         
     def plot_dsnu_spectrograms(self, gain, logx=False, logy=True):
@@ -216,7 +171,7 @@ class NonuniformityCalc(object):
         nonwhite_factor_vert = (dsnu_vert / white_noise_vert) ** 2
         ax1.set_ylabel('Power (ADU)')
         ax2.set_ylabel('Power (ADU)')
-        sigma_y = self.dsnu_temporal_var
+        sigma_y = self.dsnu_temp_var
         ax1.axhline(sigma_y, color='black', linestyle='dashed')
         ax1.text(0.45, sigma_y + 0.5, r'$\sigma_y$: ' + format(sigma_y, '.2f'))
         ax2.axhline(sigma_y, color='black', linestyle='dashed')
@@ -225,14 +180,14 @@ class NonuniformityCalc(object):
                  color='red', transform=ax1.transAxes)
         ax1.text(0.4, 0.5, r'$s_w$: ' + format(white_noise_horiz, '.2f') + ' e-',
                  color='red', transform=ax1.transAxes)
-        ax1.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_horiz, '.2f'),
-                 color='red', transform=ax1.transAxes)
+        # ax1.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_horiz, '.2f'),
+        #          color='red', transform=ax1.transAxes)
         ax2.text(0.4, 0.6, 'DSNU: ' + format(dsnu_vert, '.2f') + ' e-',
                  color='red', transform=ax2.transAxes)
         ax2.text(0.4, 0.5, r'$s_w$: '  + format(white_noise_vert, '.2f') + ' e-',
                  color='red', transform=ax2.transAxes)
-        ax2.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_vert, '.2f'),
-                 color='red', transform=ax2.transAxes)
+        # ax2.text(0.4, 0.4, 'F: ' + format(nonwhite_factor_vert, '.2f'),
+        #          color='red', transform=ax2.transAxes)
         ax1.plot(np.arange(self.N_dsnu//2) / self.N_dsnu, y_axis_horiz[:self.N_dsnu//2])
         ax1.set_xlabel('Cycles (Horizontal; periods/pix)')
         ax2.plot(np.arange(self.M_dsnu//2) / self.M_dsnu, y_axis_vert[:self.M_dsnu//2])
@@ -248,7 +203,7 @@ class NonuniformityCalc(object):
     def radial_periodogram(self, center=None):
         '''Plot a radial spectrogram of the gray images.'''
         import time
-        diff_img = (self.avg_gray_img - self.avg_dark_img)
+        diff_img = (self.gray_avg_img - self.dark_avg_img)
         if center is None:
             center = (self.M_gray // 2, self.N_gray // 2)
         # Find the radial distance from the center for each pixel in the average image
@@ -285,7 +240,7 @@ class NonuniformityCalc(object):
                 diff_img_radial[r] += val
         t3 = time.time()
         print("Time to average: ", t3 - t2)
-        diff_img_radial -= np.mean(diff_img_radial).astype(int)
+        diff_img_radial -= np.nanmean(diff_img_radial).astype(int)
         fourier_trans = np.fft.fft(diff_img_radial)
         pow_spec = np.absolute(fourier_trans) ** 2
         # Just plot the first half
@@ -307,8 +262,8 @@ class NonuniformityCalc(object):
         # Returns PRNU estimated from spectrogram in percent
         prnu_horiz = np.sqrt(np.sum(self.gray_pow_spec_horiz) / (self.N_gray - 1))
         prnu_vert = np.sqrt(np.sum(self.gray_pow_spec_vert) / (self.M_gray - 1))
-        prnu_horiz = prnu_horiz / np.mean(self.avg_gray_img - self.avg_dark_img) * 100
-        prnu_vert = prnu_vert / np.mean(self.avg_gray_img - self.avg_dark_img) * 100
+        prnu_horiz = prnu_horiz / np.nanmean(self.gray_avg_img - self.dark_avg_img) * 100
+        prnu_vert = prnu_vert / np.nanmean(self.gray_avg_img - self.dark_avg_img) * 100
         return prnu_horiz, prnu_vert
 
     def high_pass_filter(self, image):
@@ -329,20 +284,20 @@ class NonuniformityCalc(object):
         new_image = scipy.signal.convolve2d(image, box_filter_7, mode='valid')
         new_image = scipy.signal.convolve2d(new_image, box_filter_11, mode='valid')
         new_image = scipy.signal.convolve2d(new_image, binomial_filter_3x3, mode='valid')
-        new_image = np.mean(image) + image[9:-9, 9:-9] - new_image
+        new_image = np.nanmean(image) + image[9:-9, 9:-9] - new_image
         return new_image
 
     def plot_defect_hist(self, img_type):
         '''Plot the histogram of pixel values to identify defect pixels.'''
         if img_type == 'gray':
-            avg_img = self.avg_gray_img
-            avg = np.mean(avg_img)
+            avg_img = self.gray_avg_img
+            avg = np.nanmean(avg_img)
             meas_var = self.gray_meas_var
             num_pix = self.M_gray * self.N_gray
             plt.title('PRNU Defect Histogram')
         elif img_type == 'dsnu':
-            avg_img = self.avg_dsnu_img
-            avg = np.mean(avg_img)
+            avg_img = self.dsnu_avg_img
+            avg = np.nanmean(avg_img)
             meas_var = self.dsnu_meas_var
             num_pix = self.M_dsnu * self.N_dsnu
             plt.title('DSNU Defect Histogram')
@@ -371,12 +326,12 @@ class NonuniformityCalc(object):
     def defect_pix_map(self, img_type):
         '''Return an array with 1s for pixels that are more than 5 sigma from the mean'''
         if img_type == 'gray':
-            avg_img = self.avg_gray_img
-            avg = np.mean(avg_img)
+            avg_img = self.gray_avg_img
+            avg = np.nanmean(avg_img)
             meas_var = self.gray_meas_var
         elif img_type == 'dsnu':
-            avg_img = self.avg_dsnu_img
-            avg = np.mean(avg_img)
+            avg_img = self.dsnu_avg_img
+            avg = np.nanmean(avg_img)
             meas_var = self.dsnu_meas_var
         deviation_img = avg_img - avg
         defect_map = np.ones_like(avg_img)
@@ -390,16 +345,16 @@ class NonuniformityCalc(object):
     def plot_profiles(self, img_type):
         '''Plot middle, minimum, maximum, and average profiles for columns and rows'''
         if img_type == 'gray':
-            avg_img = self.avg_gray_img - self.avg_dark_img
+            avg_img = self.gray_avg_img - self.dark_avg_img
             horiz_middle = avg_img[self.M_gray // 2, :]
             vert_middle = avg_img[:, self.N_gray // 2]
         elif img_type == 'dsnu':
-            avg_img = self.avg_dsnu_img
+            avg_img = self.dsnu_avg_img
             horiz_middle = avg_img[self.M_dsnu // 2, :]
             vert_middle = avg_img[:, self.N_dsnu // 2]
-        avg = np.mean(avg_img)
-        horiz_mean = np.mean(avg_img, axis=0)
-        vert_mean = np.mean(avg_img, axis=1)
+        avg = np.nanmean(avg_img)
+        horiz_mean = np.nanmean(avg_img, axis=0)
+        vert_mean = np.nanmean(avg_img, axis=1)
         horiz_min = np.min(avg_img, axis=0)
         vert_min = np.min(avg_img, axis=1)
         horiz_max = np.max(avg_img, axis=0)
@@ -426,15 +381,15 @@ class NonuniformityCalc(object):
 
     def get_read_noise(self, num_images=5, gain=1):
         '''Calculate the read noise of the camera'''
-        avg_img = self.avg_dsnu_img
+        avg_img = self.dsnu_avg_img
         sq_diff_img = np.zeros_like(avg_img)
         for i in range(num_images):
-            img = fits.getdata(self.dsnu_dir + '/' + self.dsnu_files[i])
+            img = self.dsnu_imagestack[i]
             sq_diff_img += (img - avg_img) ** 2 / num_images
-        read_noise = np.sqrt(np.mean(sq_diff_img)) * gain
+        read_noise = np.sqrt(np.nanmean(sq_diff_img)) * gain
         return read_noise
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
     # dirCOSMOS = '/Users/layden/Library/CloudStorage/Box-Box/Scientific CMOS - MKI ONLY (might contain EAR; ITAR)/Teledyne_COSMOS/MKI Lab data/04-22-2024/Data Set 1 - 9am'
     # gray_images_name = dirCOSMOS + '/HighSHighG_RS_raw_1us 2024 April 22 09_25_04.fits'
@@ -446,27 +401,22 @@ if __name__ == '__main__':
     #     hdu = fits.PrimaryHDU(img_data[i])
     #     hdul = fits.HDUList([hdu])
     #     hdul.writeto(new_filename, overwrite=True)
-    home_dir = '/Users/layden/Documents/COSMOS/Nonuniformity'
-    gray_dir = home_dir + '/HS_HG_RS_F5A_GrayImages'
-    dark_dir = home_dir + '/HS_HG_RS_F5A_DarkImages'
-    dsnu_dir = home_dir + '/HS_HG_RS_DSNUImages'
-    nonuniformity = NonuniformityCalc(gray_dir, dark_dir, dsnu_dir, num_imgs=5, do_filtering=True)
-    print("PRNU: ", nonuniformity.prnu)
-    print("DSNU: ", nonuniformity.dsnu)
-    print("Read Noise: ", nonuniformity.get_read_noise(gain=0.971))
+    
+    
+    # print("Read Noise: ", nonuniformity.get_read_noise(gain=4.06))
     # nonuniformity.plot_profiles('dsnu')
-    nonuniformity.plot_defect_hist('dsnu')
-    nonuniformity.plot_defect_hist('gray')
+    # nonuniformity.plot_defect_hist('dsnu')
+    # nonuniformity.plot_defect_hist('gray')
     # nonuniformity.plot_dsnu_spectrograms(gain=0.971)
     # nonuniformity.plot_gray_spectrograms()
-    dark_defect_map = nonuniformity.defect_pix_map('dsnu')
-    gray_defect_map = nonuniformity.defect_pix_map('gray')
-    full_defect_map = dark_defect_map * gray_defect_map
-    plt.imshow(full_defect_map, cmap='gray')
-    plt.show()
-    print('Number of DSNU Defect Pixels: ', np.sum(dark_defect_map == 0))
-    print('Number of Gray Defect Pixels: ', np.sum(gray_defect_map == 0))
-    print('Number of Defect Pixels: ', np.sum(full_defect_map == 0))
+    # dark_defect_map = nonuniformity.defect_pix_map('dsnu')
+    # gray_defect_map = nonuniformity.defect_pix_map('gray')
+    # full_defect_map = dark_defect_map * gray_defect_map
+    # plt.imshow(full_defect_map, cmap='gray')
+    # plt.show()
+    # print('Number of DSNU Defect Pixels: ', np.sum(dark_defect_map == 0))
+    # print('Number of Gray Defect Pixels: ', np.sum(gray_defect_map == 0))
+    # print('Number of Defect Pixels: ', np.sum(full_defect_map == 0))
     # # Save defect pixel array to fits file
     # hdu = fits.PrimaryHDU(full_defect_map)
     # hdul = fits.HDUList([hdu])

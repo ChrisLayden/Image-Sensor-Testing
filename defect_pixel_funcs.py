@@ -43,17 +43,73 @@ def plot_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=True, 
         plt.text(low_cutoff, 1.0, '-' + label_str, color='black', horizontalalignment='right')
     if gain is not None:
         cutoff_dark_current = gain * high_cutoff / 120 # Exposure time is 120 seconds
-        plt.text(0.0, -0.25, 'Cutoff Dark Current: ' + format(cutoff_dark_current, '3.2f') + ' e-/s', color='red', transform=plt.gca().transAxes)
-    plt.text(0., -0.3, 'Defect Pixel Fraction: ' + format(defect_frac * 100, '4.3f') + '%', color='red', transform=plt.gca().transAxes)
+        plt.text(0.0, -0.15, 'Cutoff Dark Current: ' + format(cutoff_dark_current, '3.2f') + ' e-/s', color='red', transform=plt.gca().transAxes)
+    plt.text(0., -0.2, 'Defect Pixel Fraction: ' + format(defect_frac * 100, '4.3f') + '%', color='red', transform=plt.gca().transAxes)
     plt.ylim(bottom=0.1)
     # plt.xlim(0, 2 ** bits)
     plt.yscale('log')
-    plt.xscale('symlog')
+    # plt.xscale('symlog')
     plt.xlabel('Dark Current (e-/pix/s)')
     plt.ylabel('Number of Pixels')
     plt.title('Defect Pixel Histogram')
     if filedata is not None:
         label_plot(filedata)
+    plt.show()
+    return defect_map, med_img_median, iterated_std, iter
+
+def plot_dark_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=True, cut_low=True, num_bins=512, filedata=None, iterate=True, show_gaussian=True):
+    '''Plot the histogram of pixel values to identify defect pixels.'''
+    if clip_type == 'sigma':
+        defect_map, med_img_median, iterated_std, iter = sigma_clip_map(med_img, cutoff_level, iterate, cut_high, cut_low)
+    elif clip_type == 'mad':
+        defect_map, med_img_median, iterated_std, iter = mad_clip_map(med_img, cutoff_level, iterate, cut_high, cut_low)
+    elif clip_type=='absolute':
+        defect_map, med_img_median, iterated_std, iter = absolute_clip_map(med_img, cutoff_level, cut_high, cut_low, use_median=False)
+    diff_img = med_img
+    num_pix = med_img.size
+    max_val = np.max(diff_img)
+    min_val = np.min(diff_img)
+    (hist, bins, patches) = plt.hist(diff_img.flatten(), bins=num_bins, histtype='step', color='black')
+    defect_pix_count = np.count_nonzero(np.isnan(defect_map))
+    defect_frac = defect_pix_count / num_pix
+    bin_centers = 0.5 * (bins[1:] + bins[:-1])
+    if show_gaussian:
+        y = 1 / np.sqrt(2 * np.pi * iterated_std ** 2) * np.exp(-(bin_centers - med_img_median) ** 2 / (2 * iterated_std ** 2))
+        y *= num_pix * (max_val - min_val) / num_bins
+        plt.plot(bin_centers, y, color='red')
+    # Put vertical black lines at the defect pixel cutoffs
+    low_cutoff = med_img_median - cutoff_level * iterated_std
+    high_cutoff = med_img_median + cutoff_level * iterated_std
+    if clip_type == 'absolute':
+        low_cutoff = med_img_median - cutoff_level
+        high_cutoff = med_img_median + cutoff_level
+        label_str = str(cutoff_level)
+    elif clip_type == 'mad':
+        label_str = str(cutoff_level) + r'$\sigma_{mad}$'
+    else:
+        label_str = str(cutoff_level) + r'$\sigma$'
+    if cut_high:
+        plt.axvline(x=high_cutoff, color='red', linestyle='--')
+        # plt.text(high_cutoff, 1.0, '+' + label_str, color='black', horizontalalignment='left')
+        plt.text(high_cutoff + 0.5, 10 ** 7, 'Cutoff:' + format(high_cutoff, '3.0f') + ' e-/s', color='red', fontsize=12)
+    if cut_low:
+        plt.axvline(x=low_cutoff, color='black')    
+        plt.text(low_cutoff, 1.0, '-' + label_str, color='black', horizontalalignment='right')
+    mean_dc_no_defects = np.nanmean(med_img[~np.isnan(defect_map)])
+    plt.axvline(x=mean_dc_no_defects, color='blue', linestyle='--')
+    plt.text(mean_dc_no_defects + 0.2, 3 * 10 ** 6, 'Mean: ' + format(mean_dc_no_defects, '4.3f') + ' e-/s', color='blue', horizontalalignment='left', fontsize=12) 
+    median_dc_no_defects = np.nanmedian(med_img[~np.isnan(defect_map)])
+    plt.axvline(x=median_dc_no_defects, color='green', linestyle='--')
+    plt.text(median_dc_no_defects + 0.2, 10 ** 7, 'Median: ' + format(median_dc_no_defects, '4.3f') + ' e-/s', color='green', horizontalalignment='left', fontsize=12)
+    plt.ylim(1, 5*10**7)
+    plt.xlim(-1, 20)
+    plt.xscale('symlog')
+    plt.yscale('log')
+    plt.xlabel('Dark Current (e-/pix/s)', fontsize=16)
+    plt.ylabel('Number of Pixels', fontsize=16)
+    # plt.title('Defect Pixel Histogram')
+    # if filedata is not None:
+    #     label_plot(filedata)
     plt.show()
     return defect_map, med_img_median, iterated_std, iter
 
@@ -78,7 +134,7 @@ def sigma_clip_map(data, cutoff_level, iterate=True, cut_high=True, cut_low=True
     defect_map : numpy array
         An array with NaNs for clipped pixels
     '''
-    data_median = np.median(data)
+    data_median = np.nanmedian(data)
     defect_map = np.ones_like(data)
     new_var = np.nanvar(data)
     old_var = 0
@@ -120,7 +176,7 @@ def mad_clip_map(data, mad_level, iterate=True, cut_high=True, cut_low=True):
     defect_map : numpy array
         An array with NaNs for clipped pixels
     '''
-    data_median = np.median(data)
+    data_median = np.nanmedian(data)
     defect_map = np.ones_like(data)
     new_mad = median_abs_deviation(data, nan_policy='omit', axis=None)
     old_mad = 0
@@ -141,7 +197,7 @@ def mad_clip_map(data, mad_level, iterate=True, cut_high=True, cut_low=True):
         iter += 1
     return defect_map, data_median, np.sqrt(new_mad), iter
 
-def absolute_clip_map(data, absolute_clip, iterate=True, cut_high=True, cut_low=True):
+def absolute_clip_map(data, absolute_clip, cut_high=True, cut_low=True, use_median=True):
     '''Perform sigma-clipping on a dataset.
     
     Parameters
@@ -162,7 +218,7 @@ def absolute_clip_map(data, absolute_clip, iterate=True, cut_high=True, cut_low=
     defect_map : numpy array
         An array with NaNs for clipped pixels
     '''
-    data_median = np.median(data)
+    data_median = np.nanmedian(data) if use_median else 0
     defect_map = np.ones_like(data)
     if cut_high and cut_low:
         defect_map[abs(data - data_median) > absolute_clip] = np.NaN
@@ -172,7 +228,7 @@ def absolute_clip_map(data, absolute_clip, iterate=True, cut_high=True, cut_low=
         defect_map[- (data - data_median) > absolute_clip] = np.NaN
     data = data * defect_map
     new_var = np.nanvar(data)
-    data_median = np.nanmedian(data)
+    data_median = np.nanmedian(data) if use_median else 0
     iter = 0
     return defect_map, data_median, np.sqrt(new_var), iter
 
