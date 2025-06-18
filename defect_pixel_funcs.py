@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.stats import median_abs_deviation
 import matplotlib.pyplot as plt
-from cosmos_helper_funcs import *
 
 def plot_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=True, cut_low=True, num_bins=512, filedata=None, iterate=True, show_gaussian=True, gain=None, bits=14):
     '''Plot the histogram of pixel values to identify defect pixels.'''
@@ -52,8 +51,6 @@ def plot_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=True, 
     plt.xlabel('Dark Current (e-/pix/s)')
     plt.ylabel('Number of Pixels')
     plt.title('Defect Pixel Histogram')
-    if filedata is not None:
-        label_plot(filedata)
     plt.show()
     return defect_map, med_img_median, iterated_std, iter
 
@@ -107,9 +104,6 @@ def plot_dark_defect_hist(med_img, clip_type='sigma', cutoff_level=5, cut_high=T
     plt.yscale('log')
     plt.xlabel('Dark Current (e-/pix/s)', fontsize=16)
     plt.ylabel('Number of Pixels', fontsize=16)
-    # plt.title('Defect Pixel Histogram')
-    # if filedata is not None:
-    #     label_plot(filedata)
     plt.show()
     return defect_map, med_img_median, iterated_std, iter
 

@@ -86,25 +86,3 @@ class LinearityMeasurement(object):
         return np.array(var_list)
 
 
-# imx571_dir = '/Volumes/KINGSTON/ASI2600Images/2023-07-24'
-# imx571 = LinearityMeasurement(imx571_dir, reg=[3000, 4000, 0, 500])
-# x = imx571.mu_list - imx571.mu_list_dark
-# y = imx571.var_list - imx571.var_list_dark
-# plt.scatter(x,y)
-# plt.show()
-# print(y/x)
-
-imx571_dir = '/Volumes/DATA 1/ASI2600Images/IMX571_Data/Linearity Tests/'
-imx571 = LinearityMeasurement(imx571_dir)
-x = imx571.mu_list - imx571.mu_list_dark
-y = imx571.var_list - imx571.var_list_dark
-plt.scatter(x,y)
-plt.show()
-print(y/x)
-
-# gauss_rand = np.random.normal(loc=10, scale=5, size=(1000,1000))
-# test_img_1 = np.random.poisson(lam=100, size=(1000, 1000)) + gauss_rand
-# test_img_2 = np.random.poisson(lam=100, size=(1000, 1000)) + gauss_rand
-# print(np.var(test_img_1))
-# print(np.mean((test_img_1 - test_img_2) ** 2) / 2)
-
