@@ -85,44 +85,47 @@ def main():
     for idx, dev in enumerate(devices):
         print(f" [{idx}] {dev}")
 
-    selected = 0
-    if len(devices) > 1:
-        choice = input(f"Select device index [0-{len(devices)-1}] (default 0): ")
-        if choice.strip().isdigit():
-            selected = int(choice)
-    device_id = devices[selected]
+    while True:
+        selected = 0
+        if len(devices) > 1:
+            choice = input(f"Select device index [0-{len(devices)-1}], or 'exit': ")
+            if choice.strip().isdigit():
+                selected = int(choice)
+            elif choice.strip().lower() == "exit":
+                break
+        device_id = devices[selected]
 
-    print(f"Opening device '{device_id}' with baud=115200, timeout=3s...")
-    handle = open_device(device_id)
-    print("Device opened.")
+        print(f"Opening device '{device_id}' with baud=115200, timeout=3s...")
+        handle = open_device(device_id)
+        print("Device opened.")
 
-    max_pos = get_position_count(handle)
-    # print(f"total positions: {max_pos}")
+        max_pos = get_position_count(handle)
+        # print(f"total positions: {max_pos}")
 
-    try:
-        while True:
-            cmd = input("(get/set/exit) > ").strip().lower()
-            if cmd == 'get':
-                pos = get_position(handle)
-                print(f"Current position: {pos}")
-            elif cmd.startswith('set'):
-                parts = cmd.split()
-                if len(parts) != 2 or not parts[1].isdigit():
-                    print(f"Usage: set <position_index (0-{max_pos})>")
-                else:
-                    if int(parts[1])>max_pos:
+        try:
+            while True:
+                cmd = input("(get/set/exit) > ").strip().lower()
+                if cmd == 'get':
+                    pos = get_position(handle)
+                    print(f"Current position: {pos}")
+                elif cmd.startswith('set'):
+                    parts = cmd.split()
+                    if len(parts) != 2 or not parts[1].isdigit():
                         print(f"Usage: set <position_index (0-{max_pos})>")
                     else:
-                        set_position(handle, int(parts[1]))
-                        print(f"Set position to {parts[1]}")
-            elif cmd == 'exit':
-                break
-            else:
-                print("Unknown command. Use 'get', 'set <n>', or 'exit'.")
-    finally:
-        print("Closing device...")
-        close_device(handle)
-        print("Device closed")
+                        if int(parts[1])>max_pos:
+                            print(f"Usage: set <position_index (0-{max_pos})>")
+                        else:
+                            set_position(handle, int(parts[1]))
+                            print(f"Set position to {parts[1]}")
+                elif cmd == 'exit':
+                    break
+                else:
+                    print("Unknown command. Use 'get', 'set <n>', or 'exit'.")
+        finally:
+            print("Closing device...")
+            close_device(handle)
+            print("Device closed")
 
 
 if __name__ == '__main__':
