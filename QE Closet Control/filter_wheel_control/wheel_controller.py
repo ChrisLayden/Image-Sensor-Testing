@@ -28,12 +28,6 @@ def list_devices():
 
 
 def open_device(device_id, nBaud=115200, timeout=3):
-    """
-    Opens a connection to the filter wheel with the given device ID.
-    Returns:
-        handle (int) on success; raises on failure.
-    """
-    # Ensure serial number is a Python string
     if isinstance(device_id, bytes):
         serial_str = device_id.decode('utf-8')
     else:
@@ -73,7 +67,7 @@ def close_device(handle):
     # Closes the connection to the filter wheel.
     FWxCClose(handle)
 
-
+# loop for controlling filter wheels directly
 def main():
     print("Finding filter wheel devices...")
     devices = list_devices()
